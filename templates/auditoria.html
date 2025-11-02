@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Auditoría del sistema{% endblock %}
+{% block content %}
+
+<div class="w-full max-w-6xl mx-auto">
+  <!-- header -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-800">Auditoría del sistema</h1>
+      <p class="text-sm text-slate-500">Últimas acciones ejecutadas por los usuarios</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/api/panel/" class="text-sm px-3 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">← Volver al panel</a>
+      <!-- este botón ahora lo maneja JS para mandar el token -->
+      <button id="btnExportar" class="text-sm px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500">⬇ Exportar CSV</button>
+      <button id="btnLogout" class="text-sm px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <!-- barra de filtros -->
+  <div class="flex flex-col md:flex-row gap-3 mb-4">
+    <input
+      id="buscador"
+      type="text"
+      placeholder="Filtrar por usuario o acción..."
+      class="flex-1 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-300"
+    />
+
+    <select id="filtroAccion" class="border border-slate-200 rounded-lg px-3 py-2 bg-white">
+      <option value="">Todas las acciones</option>
+      <option value="login">Login</option>
+      <option value="ver contenido">Ver contenido</option>
+      <option value="editar contenido">Editar contenido</option>
+      <option value="acceso total">Acceso total</option>
+    </select>
+
+    <button id="btnRefrescar" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-sm">↻ Actualizar</button>
+  </div>
+
+  <!-- alerta sin permiso -->
+  <div id="alerta" class="hidden mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+    No tenés permiso para ver la auditoría.
+  </div>
+
+  <!-- tabla -->
+  <div class="bg-white rounded-xl shadow overflow-hidden">
+    <table class="min-w-full text-sm">
+      <thead class="bg-slate-50 border-b">
+        <tr>
+          <th class="text-left py-3 px-4 text-slate-500 font-semibold w-40">Fecha</th>
+          <th class="text-left py-3 px-4 text-slate-500 font-semibold w-40">Usuario</th>
+          <th class="text-left py-3 px-4 text-slate-500 font-semibold">Acción</th>
+          <th class="text-left py-3 px-4 text-slate-500 font-semibold w-64">Extra</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyLogs">
+        <tr>
+          <td colspan="4" class="py-4 px-4 text-center text-slate-400">Cargando auditoría...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- pie -->
+  <p id="contador" class="text-xs text-slate-400 mt-3">0 registros</p>
+</div>
+
+<script>
+const token = localStorage.getItem("token");
+const tbody = document.getElementById("tbodyLogs");
+const alerta = document.getElementById("alerta");
+const buscador = document.getElementById("buscador");
+const filtroAccion = document.getElementById("filtroAccion");
+const contador = document.getElementById("contador");
+const btnRefrescar = document.getElementById("btnRefrescar");
+const btnExportar = document.getElementById("btnExportar");
+
+let datosOriginales = [];
+
+if (!token) {
+  window.location.href = "/api/login/";
+}
+
+function badgeAccion(accion) {
+  const a = (accion || "").toLowerCase();
+  if (a.includes("login")) {
+    return `<span class="inline-flex items-center px-2 py-1 rounded-full bg-sky-100 text-sky-700 text-xs">Login</span>`;
+  }
+  if (a.includes("editar")) {
+    return `<span class="inline-flex items-center px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">Edición</span>`;
+  }
+  if (a.includes("acceso total")) {
+    return `<span class="inline-flex items-center px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs">Admin</span>`;
+  }
+  if (a.includes("ver")) {
+    return `<span class="inline-flex items-center px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs">Lectura</span>`;
+  }
+  return `<span class="inline-flex items-center px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">Acción</span>`;
+}
+
+function renderTabla(datos) {
+  if (!datos.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="py-6 px-4 text-center text-slate-400">No hay acciones que coincidan con el filtro.</td></tr>`;
+    contador.textContent = "0 registros";
+    return;
+  }
+
+  const rows = datos.map(item => {
+    return `
+      <tr class="border-b last:border-0 hover:bg-slate-50">
+        <td class="py-2 px-4 text-slate-700 whitespace-nowrap">${item.fecha}</td>
+        <td class="py-2 px-4 text-slate-700">${item.usuario}</td>
+        <td class="py-2 px-4 text-slate-700">
+          <div class="flex gap-2 items-center">
+            ${badgeAccion(item.accion)}
+            <span>${item.accion}</span>
+          </div>
+        </td>
+        <td class="py-2 px-4 text-slate-400 text-xs break-all">${JSON.stringify(item.extra)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.innerHTML = rows;
+  contador.textContent = datos.length + " registro" + (datos.length === 1 ? "" : "s");
+}
+
+async function cargarAuditoria() {
+  const res = await fetch("/api/auditoria/data/", {
+    headers: { "Authorization": "Bearer " + token }
+  });
+
+  if (!res.ok) {
+    alerta.classList.remove("hidden");
+    renderTabla([]);
+    return;
+  }
+
+  const data = await res.json();
+  datosOriginales = data.auditoria || [];
+  alerta.classList.add("hidden");
+  aplicarFiltros();
+}
+
+function aplicarFiltros() {
+  let filtrados = [...datosOriginales];
+  const q = buscador.value.toLowerCase().trim();
+  const accionSel = filtroAccion.value.toLowerCase().trim();
+
+  if (q) {
+    filtrados = filtrados.filter(item =>
+      (item.usuario && item.usuario.toLowerCase().includes(q)) ||
+      (item.accion && item.accion.toLowerCase().includes(q))
+    );
+  }
+
+  if (accionSel) {
+    filtrados = filtrados.filter(item =>
+      item.accion && item.accion.toLowerCase().includes(accionSel)
+    );
+  }
+
+  renderTabla(filtrados);
+}
+
+cargarAuditoria();
+
+buscador.addEventListener("input", aplicarFiltros);
+filtroAccion.addEventListener("change", aplicarFiltros);
+btnRefrescar.addEventListener("click", cargarAuditoria);
+
+document.getElementById("btnLogout").addEventListener("click", () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  window.location.href = "/api/login/";
+});
+
+// ===== EXPORTAR CSV CON TOKEN =====
+btnExportar.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/auditoria/exportar/", {
+      headers: {
+        "Authorization": "Bearer " + token
+      }
+    });
+
+    if (!res.ok) {
+      alert("No se pudo exportar la auditoría (¿tenés permiso?).");
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const hoy = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `auditoria_techsoluciones_${hoy}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error(err);
+    alert("Error al descargar el CSV");
+  }
+});
+</script>
+
+{% endblock %}

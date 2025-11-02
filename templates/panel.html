@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Panel - TechSoluciones RBAC{% endblock %}
+{% block content %}
+
+<div class="w-full max-w-3xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-800">Panel del sistema</h1>
+      <p class="text-sm text-slate-500" id="userInfo">Sesión iniciada</p>
+    </div>
+    <button id="btnLogout" class="text-sm text-slate-500 hover:text-slate-800">Cerrar sesión</button>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <button id="btnVer" class="bg-white rounded-xl shadow p-4 hover:shadow-md transition text-left">
+      <h2 class="font-semibold text-slate-800 mb-2">Ver</h2>
+      <p class="text-sm text-slate-500">Permiso: <strong>LECTURA</strong></p>
+    </button>
+
+    <button id="btnEditar" class="bg-white rounded-xl shadow p-4 hover:shadow-md transition text-left">
+      <h2 class="font-semibold text-slate-800 mb-2">Editar</h2>
+      <p class="text-sm text-slate-500">Permiso: <strong>EDICIÓN</strong></p>
+    </button>
+
+    <button id="btnAdmin" class="bg-white rounded-xl shadow p-4 hover:shadow-md transition text-left">
+      <h2 class="font-semibold text-slate-800 mb-2">Administración</h2>
+      <p class="text-sm text-slate-500">Permiso: <strong>GESTIÓN_TOTAL</strong></p>
+    </button>
+  </div>
+
+  <div id="resultado" class="space-y-3"></div>
+</div>
+
+<script>
+const token = localStorage.getItem("token");
+const user = JSON.parse(localStorage.getItem("user") || "null");
+const resultado = document.getElementById("resultado");
+const userInfo = document.getElementById("userInfo");
+
+// si no hay token -> al login
+if (!token) {
+  window.location.href = "/api/login/";
+}
+
+// mostrar quién está logueado
+if (user) {
+  userInfo.textContent = `Sesión iniciada como ${user.username} (${user.role || "sin rol"})`;
+
+  // si es admin, le muestro el botón de auditoría
+  if (user.role === "Administrador del Sistema") {
+    const barraExtra = document.createElement("div");
+    barraExtra.className = "mb-6 flex justify-end";
+    barraExtra.innerHTML = `
+      <a href="/api/auditoria/" 
+         class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-slate-700 shadow">
+         📊 Ver auditoría
+      </a>`;
+    userInfo.parentElement.after(barraExtra);
+  }
+}
+
+function renderOk(msg) {
+  resultado.innerHTML = `
+    <div class="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3 items-start">
+      <div class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center text-lg">✓</div>
+      <div>
+        <p class="text-sm text-green-900 font-semibold">Operación exitosa</p>
+        <p class="text-sm text-green-700">${msg}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderError(msg) {
+  resultado.innerHTML = `
+    <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-3 items-start">
+      <div class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center text-lg">!</div>
+      <div>
+        <p class="text-sm text-red-900 font-semibold">Acceso denegado</p>
+        <p class="text-sm text-red-700">${msg}</p>
+      </div>
+    </div>
+  `;
+}
+
+async function llamarEndpoint(url) {
+  const res = await fetch(url, {
+    headers: { "Authorization": "Bearer " + token }
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    renderError(data.error || "No tenés permiso para esta acción.");
+  } else {
+    renderOk(data.msg || "Acción realizada correctamente.");
+  }
+}
+
+document.getElementById("btnVer").addEventListener("click", () => llamarEndpoint("/api/ver/"));
+document.getElementById("btnEditar").addEventListener("click", () => llamarEndpoint("/api/editar/"));
+document.getElementById("btnAdmin").addEventListener("click", () => llamarEndpoint("/api/admin/"));
+
+document.getElementById("btnLogout").addEventListener("click", () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  window.location.href = "/api/login/";
+});
+</script>
+
+{% endblock %}
